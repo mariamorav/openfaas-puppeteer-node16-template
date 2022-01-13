@@ -5,28 +5,11 @@ FROM buildkite/puppeteer:10.0.0
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
-ENV APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1
-ARG ADDITIONAL_PACKAGE
-
-RUN if test -n "${ADDITIONAL_PACKAGE}"; then apt-get update \
-    && apt-get install -y curl gnupg \
-    && curl -sLSf https://dl-ssl.google.com/linux/linux_signing_key.pub -o - | apt-key add - \
-    && apt-get update ;fi
-
-RUN if test -n "${ADDITIONAL_PACKAGE}"; then apt-get install -y ${ADDITIONAL_PACKAGE} --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* ;fi
-
 COPY --from=watchdog /fwatchdog /usr/bin/fwatchdog
-
 RUN chmod +x /usr/bin/fwatchdog
-
-RUN addgroup --system app \
-    && adduser --system --ingroup app app
 
 RUN apk --no-cache add curl ca-certificates \
     && addgroup -S app && adduser -S -g app app
-
-WORKDIR /root/
 
 # Turn down the verbosity to default level.
 ENV NPM_CONFIG_LOGLEVEL warn
@@ -63,12 +46,6 @@ RUN npm test
 
 # Set correct permissions to use non root user
 WORKDIR /home/app/
-
-# chmod for tmp is for a buildkit issue
-RUN chown app:app -R /home/app \
-    && chmod 777 /tmp
-
-USER app
 
 ENV cgi_headers="true"
 ENV fprocess="node index.js"
