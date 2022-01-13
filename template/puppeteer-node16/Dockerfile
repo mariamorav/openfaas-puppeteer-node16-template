@@ -2,23 +2,29 @@ FROM --platform=${TARGETPLATFORM:-linux/amd64} ghcr.io/openfaas/of-watchdog:0.9.
 FROM --platform=${TARGETPLATFORM:-linux/amd64} node:16-alpine as ship
 FROM buildkite/puppeteer:10.0.0
 
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
+ENV APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1
+ARG ADDITIONAL_PACKAGE
+
+RUN if test -n "${ADDITIONAL_PACKAGE}"; then apt-get update \
+    && apt-get install -y curl gnupg \
+    && curl -sLSf https://dl-ssl.google.com/linux/linux_signing_key.pub -o - | apt-key add - \
+    && apt-get update ;fi
+
+RUN if test -n "${ADDITIONAL_PACKAGE}"; then apt-get install -y ${ADDITIONAL_PACKAGE} --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* ;fi
 
 COPY --from=watchdog /fwatchdog /usr/bin/fwatchdog
 RUN chmod +x /usr/bin/fwatchdog
 
-RUN apk --no-cache add curl ca-certificates \
-    && addgroup -S app && adduser -S -g app app
+RUN addgroup --system app \
+    && adduser --system --ingroup app app
+
+WORKDIR /root/
 
 # Turn down the verbosity to default level.
 ENV NPM_CONFIG_LOGLEVEL warn
 
-RUN chmod 777 /tmp
-
-USER app
-
-RUN mkdir -p /home/app/function
+RUN mkdir -p /home/app
 
 # Wrapper/boot-strapper
 WORKDIR /home/app
@@ -34,9 +40,10 @@ COPY index.js ./
 # entry allows caching of npm install
 
 WORKDIR /home/app/function
+
 COPY function/*.json ./
 
-RUN npm i
+RUN npm i || :
 
 # COPY function files and folders
 COPY function/ ./
@@ -47,6 +54,12 @@ RUN npm test
 # Set correct permissions to use non root user
 WORKDIR /home/app/
 
+# chmod for tmp is for a buildkit issue
+RUN chown app:app -R /home/app \
+    && chmod 777 /tmp
+
+USER app
+
 ENV cgi_headers="true"
 ENV fprocess="node index.js"
 ENV mode="http"
@@ -56,8 +69,6 @@ ENV exec_timeout="10s"
 ENV write_timeout="15s"
 ENV read_timeout="15s"
 ENV PATH="${PATH}:/node_modules/.bin"
-
-ENV prefix_logs="false"
 
 HEALTHCHECK --interval=3s CMD [ -e /tmp/.lock ] || exit 1
 
